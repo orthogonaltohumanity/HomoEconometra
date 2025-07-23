@@ -1,3 +1,11 @@
+"""Minimal agent based economic simulation.
+
+This script models a population of simple agents that harvest resources,
+trade with one another and consume goods to gain rewards.  The environment is
+designed purely for experimentation and therefore relies heavily on PyTorch for
+automatic differentiation and optimisation of the agents' neural networks.
+"""
+
 import os
 import torch
 import torch.nn as nn
@@ -8,29 +16,61 @@ import imageio.v2 as imageio
 from scipy.optimize import linprog
 import matplotlib.colors as mcolors  # make sure this is imported at the top
 from random import randint
-plt.switch_backend('agg')
+
+plt.switch_backend('agg')  # use non‑interactive backend for image generation
+
+# CUDA is optional; fall back to CPU if unavailable
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 
-resource_history = []
-broadcast_history = []  # Stores broadcasts from each step
+# --- Global state trackers -------------------------------------------------
+# History of total resources in the environment for plotting
+resource_history: list = []
+
+# Saved broadcasts from each timestep for later analysis
+broadcast_history: list = []
+
+# Numerical cutoff for treating tiny values as zero
 small_value_threshold = 1e-5
 
 #use_softmax_allocation = True  #  Toggle this for testing
 
-input_dim =3 #number of resources
-resource_names = ["Berries","Meat","Fur"]
-broadcast_dim = 6 #dimension for agent broadcast vector
+# --- Simulation configuration ----------------------------------------------
+
+# Number of distinct resources in the world
+input_dim = 3
+
+# Human readable names for each resource
+resource_names = ["Berries", "Meat", "Fur"]
+
+# Length of the vector each agent broadcasts to others
+broadcast_dim = 6
+
+# Number of available jobs/tasks in the environment
 num_jobs = 3
+
+# Size of the agent population
 num_agents = 30
-alpha = 0.005  #scalar controlling how much an agent is rewarded for not putting in effort, i.e. resting
-pgd_steps = 100 #number of steps for PGD for the trading stage
-pgd_lr = 0.01 #learning rate for PGD
-age_effort_penalty = 0.15 #Controls the rate at which age impacts maximum effort
-gini_history=[] #used to keep track of Gini Index
-max_age =60
-decay_rate = 0.1 #global rate of resource decay
+
+# Reward given for resting instead of exerting effort
+alpha = 0.005
+
+# Parameters for projected gradient descent used during trading
+pgd_steps = 100
+pgd_lr = 0.01
+
+# Exponential penalty on maximum effort as agents age
+age_effort_penalty = 0.15
+
+# History of inequality measure over time
+gini_history: list = []
+
+# Maximum lifespan of an agent (in steps)
+max_age = 60
+
+# Global rate at which unused resources decay each step
+decay_rate = 0.1
 
 #For an agent to survive to the next step, the inner product of their consumption and min_vector must be greater than min_const
 min_vector = torch.tensor([5.0, 10.0,0.0], device=device)
@@ -43,6 +83,7 @@ max_steps=1000
 plot_freq = 1 #frequency at which a plot is saved for GIF generation
 num_gif = 1
 def init_jobs():
+    """Define the available production jobs in the environment."""
     return [
         {'name':'Gathering Berries','input': torch.tensor([0.0, 0.0,0.0], device=device),
          'output': torch.tensor([1.0,0.0,0.0], device=device),
@@ -64,6 +105,7 @@ def init_jobs():
 
 #Each neural network of an agent is trained separately with its own optimizer
 def make_agent_optimizers(agent):
+    """Create optimizers for all sub-networks of a single agent."""
     return [
         torch.optim.Adam(agent.broadcast_net.parameters(), lr=0.05),
         torch.optim.Adam(agent.social_filter_net.parameters(), lr=0.05),
@@ -76,6 +118,7 @@ def make_agent_optimizers(agent):
 
 #Prunes underconsuming and old agents, replacing them with new agents that inherit traits from their parents
 def prune_underconsuming_agents(agents, min_vector, mutation_strength=0.1):
+    """Replace agents that consume too little or grow too old with offspring."""
     consumed_tensor = torch.stack([
         agent.cached_outputs.get("last_consumed", torch.zeros_like(min_vector)).squeeze(0) for agent in agents
     ])
@@ -98,6 +141,7 @@ def prune_underconsuming_agents(agents, min_vector, mutation_strength=0.1):
         probs = None
         top_agents = []
 
+    # Helper used when creating offspring from two surviving parents
     def breed(parent1, parent2):
         child = Agent().to(device)
         with torch.no_grad():
@@ -328,6 +372,7 @@ def add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes,
 
 
 def add_effort_vs_consumption_subplot(agents, fig, axes, position):
+    """Scatter plot comparing effort with total consumption for each agent."""
     efforts = [
         agent.last_effort.detach().cpu().item() if hasattr(agent, 'last_effort') else 0.0
         for agent in agents
@@ -427,7 +472,8 @@ def add_broadcast_eigenvalue_subplot(broadcasts, step, fig, axes, position):
 
     return fig, axes
 
-def plot_trade_with_supply_demand(before, after, step, agents, broadcasts,job_names=None, chosen_jobs=None):
+def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_names=None, chosen_jobs=None):
+    """Visualize trading results along with several diagnostic subplots."""
     import os
     import matplotlib.pyplot as plt
     import numpy as np
@@ -533,6 +579,7 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts,job_na
 
 
 def generate_trade_gif():
+    """Combine saved trade scatter plots into an animated GIF."""
     image_dir = "trade_scatter"
     gif_path = os.path.join(image_dir, "trade_evolution.gif")
     images = []
@@ -547,12 +594,15 @@ def generate_trade_gif():
         print("No images found for GIF generation.")
 
 def seasonal_job_output(job, step, job_idx):
+    """Return seasonally adjusted job output (currently unused)."""
     step_tensor = torch.tensor(0.01 * step + job_idx, device=device)
     scale = 1.0 + 0.5 * torch.sin(step_tensor)
     return job['output'] #* scale
 
 
 class FlexibleMLP(nn.Module):
+    """Simple configurable multi-layer perceptron used for all agent networks."""
+
     def __init__(self, input_dim, output_dim, hidden_dim=64, num_hidden_layers=2, activation='relu'):
         super().__init__()
         self.layers = nn.ModuleList()
@@ -566,11 +616,13 @@ class FlexibleMLP(nn.Module):
         self.activation_fn = F.relu if activation == 'relu' else torch.sigmoid if activation == 'sig' else torch.tanh
 
     def forward(self, x):
+        """Run a forward pass through all layers."""
         for layer in self.layers:
             x = self.activation_fn(layer(x))
         return self.output_layer(x)
 
 class Agent(nn.Module):
+    """Encapsulates all neural networks and state for a single agent."""
     def __init__(self):
         super().__init__()
         self.age = 0
@@ -591,6 +643,7 @@ class Agent(nn.Module):
         self.accum_reward = 0.0
         self.reward_weights = torch.softmax(torch.rand(1,input_dim),dim=1) #Reward weights are genetic and determine how the agent is rewarded during the consumption stage
     def _init_weights(self):
+        """Initialise all network weights using Xavier uniform distribution."""
         for net in [self.broadcast_net, self.social_filter_net, self.production_net, self.trading_net, self.consumption_net]:
             for param in net.parameters():
                 if param.dim() > 1:
@@ -603,6 +656,7 @@ class Agent(nn.Module):
 
 
 def compute_social_signals(agents, broadcasts):
+    """Aggregate other agents' broadcasts into a single signal per agent."""
     signals = []
     for i, agent in enumerate(agents):
         others_idx = [j for j in range(num_agents) if j != i]
@@ -652,6 +706,7 @@ def project_columns_onto_simplex(X, totals):
 
 # Simplex projection function (differentiable)
 def project_to_simplex(v, eps=1e-6):
+    """Project a vector onto the probability simplex."""
     if v.dim() == 1:
         v = v.unsqueeze(0)
 
@@ -666,6 +721,7 @@ def project_to_simplex(v, eps=1e-6):
 
 # PGD trading using detached computation on the global device
 def run_trading_pgd(agents, social_signals):
+    """Optimize resource distribution between agents via projected gradient descent."""
     num_agents = len(agents)
     input_dim = agents[0].resources.shape[1]
 
@@ -722,6 +778,7 @@ def run_trading_pgd(agents, social_signals):
     return current_resources.detach().to(device)
 
 def run_simulation():
+    """Main training loop running agents through production, trade and consumption."""
 
     jobs = init_jobs()
 
