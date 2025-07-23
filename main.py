@@ -8,9 +8,6 @@ import imageio.v2 as imageio
 from scipy.optimize import linprog
 import matplotlib.colors as mcolors  # make sure this is imported at the top
 from random import randint
-import io
-from PIL import images
-import gradio as gr
 plt.switch_backend('agg')
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
@@ -26,10 +23,10 @@ input_dim =3 #number of resources
 resource_names = ["Berries","Meat","Fur"]
 broadcast_dim = 6 #dimension for agent broadcast vector
 num_jobs = 3
-num_agents = 20
+num_agents = 30
 alpha = 0.005  #scalar controlling how much an agent is rewarded for not putting in effort, i.e. resting
-pgd_steps = 50 #number of steps for PGD for the trading stage
-pgd_lr = 0.02 #learning rate for PGD
+pgd_steps = 100 #number of steps for PGD for the trading stage
+pgd_lr = 0.01 #learning rate for PGD
 age_effort_penalty = 0.15 #Controls the rate at which age impacts maximum effort
 gini_history=[] #used to keep track of Gini Index
 max_age =60
@@ -528,20 +525,11 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts,job_na
     for k in range(total_plots, len(axes)):
         fig.delaxes(axes[k])
 
-    plt.suptitle(f'Data Visualization at Step {step}', fontsize=16)
-    #os.makedirs("trade_scatter", exist_ok=True)
-    #plt.tight_layout(rect=[0, 0, 1, 0.96])
-    #plt.savefig(f"trade_scatter/step_{step:04d}.png")
-    #plt.close()
+    plt.suptitle(f'Resource Distributions, Age, Supply/Demand, and Job Choices at Step {step}', fontsize=16)
+    os.makedirs("trade_scatter", exist_ok=True)
     plt.tight_layout(rect=[0, 0, 1, 0.96])
-    # --- Return a displayable image ---
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png")
-    plt.close(fig)
-    buf.seek(0)
-    img = Image.open(buf)
-    return img
-
+    plt.savefig(f"trade_scatter/step_{step:04d}.png")
+    plt.close()
 
 
 def generate_trade_gif():
@@ -896,20 +884,19 @@ def run_simulation():
             ])
             if step % plot_freq == 0 :
                 job_names = [job['name'] for job in jobs]
-                plot_img = plot_trade_with_supply_demand(
-                    before_trade, after_trade, step, agents,
-                    broadcasts=broadcasts, job_names=job_names,
-                    chosen_jobs=chosen_jobs
-                )
-                yield plot_img
+                plot_trade_with_supply_demand(before_trade, after_trade, step, agents=agents,broadcasts=broadcasts, job_names=job_names, chosen_jobs=chosen_jobs)
+
 
 
             print(f"Step {step} Avg Reward: {avg_reward} Gini: {gini_val}")
     return agents
 
 if __name__ == "__main__":
-    demo = gr.Interface(fn=run_simulation,inputs=[],outputs=gr.Image(type="pil",label="Simulation Status"),live=True)
-    demo.launch()
+    agents = run_simulation()
     #generate_trade_gif()
-
+    plt.plot(gini_history)
+    plt.title("Gini Index of Resource Distribution Over Time")
+    plt.xlabel("Step")
+    plt.ylabel("Gini Coefficient")
+    plt.savefig("gini_over_time.png")
 
