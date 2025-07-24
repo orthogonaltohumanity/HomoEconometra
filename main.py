@@ -39,16 +39,16 @@ small_value_threshold = 1e-5
 # --- Simulation configuration ----------------------------------------------
 
 # Number of distinct resources in the world
-input_dim = 3
+input_dim = 2 
 
 # Human readable names for each resource
-resource_names = ["Berries", "Meat", "Fur"]
+resource_names = ["Berries", "Meat"]
 
 # Length of the vector each agent broadcasts to others
 broadcast_dim = 6
 
 # Number of available jobs/tasks in the environment
-num_jobs = 3
+num_jobs = 2 
 
 # Size of the agent population
 num_agents = 30
@@ -73,8 +73,8 @@ max_age = 60
 decay_rate = 0.1
 
 #For an agent to survive to the next step, the inner product of their consumption and min_vector must be greater than min_const
-min_vector = torch.tensor([5.0, 10.0,0.0], device=device)
-min_const = 0.5
+min_vector = torch.tensor([1.0,1.0], device=device)
+min_const = 0.1
 
 #Cap on how much of each resource can be produced per step
 resource_cap = torch.tensor([float("Inf"),float("Inf"),float("Inf")],device=device)
@@ -84,6 +84,7 @@ plot_freq = 1 #frequency at which a plot is saved for GIF generation
 num_gif = 1
 def init_jobs():
     """Define the available production jobs in the environment."""
+    """
     return [
         {'name':'Gathering Berries','input': torch.tensor([0.0, 0.0,0.0], device=device),
          'output': torch.tensor([1.0,0.0,0.0], device=device),
@@ -102,7 +103,21 @@ def init_jobs():
          'min':0.0}
         #{'name':'Hunting Deer','input': torch.tensor([0.1,0.1,0.0], device=device), 'output': torch.tensor([0.0,0.0,1.0], device=device)},
     ]
-
+    """
+    return [
+            {'name':'Gathering',
+             'input':torch.tensor([0.0,0.0],device=device),
+             'output':torch.tensor([1.0,0.0],device=device),
+             'phase':1.57,
+             'period':100,
+             'min':0.0},
+            {'name':'Hunting',
+             'input':torch.tensor([0.0,0.0],device=device),
+             'output':torch.tensor([0.0,1.0],device=device),
+             'phase':0.0,
+             'period':100,
+             'min':0.0},
+            ]
 #Each neural network of an agent is trained separately with its own optimizer
 def make_agent_optimizers(agent):
     """Create optimizers for all sub-networks of a single agent."""
@@ -528,7 +543,7 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
     num_pairs = len(pairs)
 
     # Total subplots: resource pairs + age histogram + supply/demand + job bar chart
-    total_plots = num_pairs + 13
+    total_plots = num_pairs + 14
     ncols = 4
     nrows = (total_plots + 1) // ncols
 
@@ -861,7 +876,7 @@ def run_simulation():
                 # Only compute output if the agent can afford the job input
 
                 # Compute seasonal scaling
-                seasonal_scale = torch.cos(torch.tensor(6.28 * (step / job['period']) + job['phase'], device=device))**2.0 if job['period'] != float("Inf") else 1.0
+                seasonal_scale = torch.cos(torch.tensor(1.57 * (step / job['period']) + job['phase'], device=device))**2.0 if job['period'] != float("Inf") else 1.0
                 scaled_output = (job['output'] * seasonal_scale + job['min'] * job['output'])
 
                 # Check if full effort is affordable
