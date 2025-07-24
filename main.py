@@ -369,6 +369,46 @@ def add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes,
 
     return fig, axes
 
+def add_social_filter_heatmap_subplot(agents, broadcasts, fig, axes, position):
+    """Add heatmap showing how each agent weights others via the social filter net."""
+    num_agents = len(agents)
+
+    if hasattr(broadcasts, "detach"):
+        broadcasts = broadcasts.detach()
+
+    weights = torch.zeros(num_agents, num_agents, device=broadcasts.device)
+
+    for i, agent in enumerate(agents):
+        other_indices = [j for j in range(num_agents) if j != i]
+        if not other_indices:
+            continue
+
+        others_broadcasts = broadcasts[other_indices]
+        ids_expanded = torch.stack([agents[j].id_vector.squeeze(0) for j in other_indices])
+        own_broadcast_exp = broadcasts[i].expand_as(others_broadcasts)
+        own_resources_exp = agent.resources.expand(len(other_indices), -1)
+        other_resources = torch.stack([agents[j].resources for j in other_indices]).squeeze(1)
+
+        pairwise = torch.cat([
+            own_broadcast_exp, others_broadcasts,
+            ids_expanded, other_resources, own_resources_exp
+        ], dim=-1)
+
+        scores = agent.social_filter_net(pairwise).squeeze(-1)
+        probs = F.softmax(scores, dim=0)
+        weights[i, other_indices] = probs.detach()
+
+    matrix = weights.cpu().numpy()
+
+    ax = axes[position]
+    im = ax.imshow(matrix, cmap="viridis", aspect="auto")
+    ax.set_title("Social Filter Weights")
+    ax.set_xlabel("Target Agent")
+    ax.set_ylabel("Source Agent")
+    fig.colorbar(im, ax=ax)
+
+    return fig, axes
+
 
 
 def add_effort_vs_consumption_subplot(agents, fig, axes, position):
@@ -488,7 +528,7 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
     num_pairs = len(pairs)
 
     # Total subplots: resource pairs + age histogram + supply/demand + job bar chart
-    total_plots = num_pairs + 12
+    total_plots = num_pairs + 13
     ncols = 4
     nrows = (total_plots + 1) // ncols
 
@@ -504,6 +544,7 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
         fig, axes = add_broadcast_pca_colored_subplot(broadcasts, agents, fig, axes, position=total_plots - 6, color_by="consumption")
         fig, axes = add_broadcast_pca_colored_subplot(broadcasts, agents, fig, axes, position=total_plots - 7, color_by="production")
         fig, axes = add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes, position=total_plots - 8)
+        fig, axes = add_social_filter_heatmap_subplot(agents, broadcasts, fig, axes, position=total_plots - 9)
 
 
 
