@@ -321,12 +321,12 @@ def add_broadcast_pca_colored_subplot(broadcasts, agents, fig, axes, position, c
     return fig, axes
 def add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes, position, job_names=None):
     """
-    Adds a PCA plot of broadcasts colored by job ID (int), with padded -1 entries shown in gray.
+    Adds a PCA plot of broadcasts colored by job ID (int). Agents with no successful job are colored gray.
 
     Parameters:
         broadcasts (Tensor): shape (N, D)
         agents (List): list of length N
-        chosen_jobs (List or array): list of length N (or shorter/longer)
+        chosen_jobs (List or array): list of length N giving each agent's selected job id or -1
         fig, axes, position: matplotlib layout
         job_names (List[str]): names for each job
     """
@@ -534,8 +534,26 @@ def add_broadcast_eigenvalue_subplot(broadcasts, step, fig, axes, position):
 
     return fig, axes
 
-def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_names=None, chosen_jobs=None):
-    """Visualize trading results along with several diagnostic subplots."""
+def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_names=None, chosen_jobs=None, jobs_per_agent=None):
+    """Visualize trading results along with several diagnostic subplots.
+
+    Parameters
+    ----------
+    before, after : array-like
+        Resource matrices before and after trading.
+    step : int
+        Current simulation step.
+    agents : list
+        Agents participating in the simulation.
+    broadcasts : Tensor
+        Broadcast vectors for each agent.
+    job_names : list of str, optional
+        Names of the available jobs.
+    chosen_jobs : list of int, optional
+        Job ids chosen by agents that successfully performed a job.
+    jobs_per_agent : list of int, optional
+        Length-N list giving each agent's job id or -1 if none was performed.
+    """
     import os
     import matplotlib.pyplot as plt
     import numpy as np
@@ -565,7 +583,9 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
         fig, axes = add_broadcast_pca_colored_subplot(broadcasts, agents, fig, axes, position=total_plots - 5, color_by="effort")
         fig, axes = add_broadcast_pca_colored_subplot(broadcasts, agents, fig, axes, position=total_plots - 6, color_by="consumption")
         fig, axes = add_broadcast_pca_colored_subplot(broadcasts, agents, fig, axes, position=total_plots - 7, color_by="production")
+
         fig, axes = add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes, position=total_plots - 8, job_names=job_names)
+
         fig, axes = add_social_filter_heatmap_subplot(agents, broadcasts, fig, axes, position=total_plots - 9)
 
 
@@ -864,7 +884,9 @@ def run_simulation():
             social_signals = compute_social_signals(agents, broadcasts)
 
             # --- PRODUCTION ---
-            chosen_jobs = []
+            # Track jobs for all agents; -1 indicates the agent could not perform a job
+            chosen_jobs = []  # successful job selections only
+            jobs_per_agent = [-1] * len(agents)
             efforts = []
             produced = []
             inputs = []
@@ -891,6 +913,7 @@ def run_simulation():
                 if torch.all(agent.resources >= required_input - 1e-6):
                     output = scaled_output * effort
                     chosen_jobs.append(job_id)
+                    jobs_per_agent[i] = job_id
                     efforts.append(effort)
                     produced.append(output)
                     inputs.append(required_input)
@@ -914,6 +937,7 @@ def run_simulation():
                             output = scaled_output * max_effort
                             required_input = job['input'] * max_effort
                             chosen_jobs.append(job_id)
+                            jobs_per_agent[i] = job_id
                             efforts.append(max_effort)
                             produced.append(output)
                             inputs.append(required_input)
@@ -1004,7 +1028,9 @@ def run_simulation():
             ])
             if step % plot_freq == 0 :
                 job_names = [job['name'] for job in jobs]
-                plot_trade_with_supply_demand(before_trade, after_trade, step, agents=agents,broadcasts=broadcasts, job_names=job_names, chosen_jobs=chosen_jobs)
+                plot_trade_with_supply_demand(before_trade, after_trade, step, agents=agents,
+                                              broadcasts=broadcasts, job_names=job_names,
+                                              chosen_jobs=chosen_jobs, jobs_per_agent=jobs_per_agent)
 
 
 
