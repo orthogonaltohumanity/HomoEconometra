@@ -583,7 +583,9 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
         fig, axes = add_broadcast_pca_colored_subplot(broadcasts, agents, fig, axes, position=total_plots - 5, color_by="effort")
         fig, axes = add_broadcast_pca_colored_subplot(broadcasts, agents, fig, axes, position=total_plots - 6, color_by="consumption")
         fig, axes = add_broadcast_pca_colored_subplot(broadcasts, agents, fig, axes, position=total_plots - 7, color_by="production")
-        fig, axes = add_broadcast_pca_colored_by_job(broadcasts, agents, jobs_per_agent, fig, axes, position=total_plots - 8, job_names=job_names)
+
+        fig, axes = add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes, position=total_plots - 8, job_names=job_names)
+
         fig, axes = add_social_filter_heatmap_subplot(agents, broadcasts, fig, axes, position=total_plots - 9)
 
 
