@@ -359,18 +359,17 @@ def add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes,
 
     # Determine number of jobs and set up color map
     if job_names is None:
-        unique_jobs = [j for j in np.unique(chosen_jobs) if j >= 0]
-        num_jobs = len(unique_jobs)
-        job_names = [str(j) for j in unique_jobs]
+        num_jobs_total = num_jobs
+        job_names = [str(j) for j in range(num_jobs_total)]
     else:
-        num_jobs = len(job_names)
+        num_jobs_total = len(job_names)
 
     base_colors = plt.get_cmap("tab10").colors
-    cmap_colors = [base_colors[i % len(base_colors)] for i in range(num_jobs)] + [(0.6, 0.6, 0.6)]
+    cmap_colors = [base_colors[i % len(base_colors)] for i in range(num_jobs_total)] + [(0.6, 0.6, 0.6)]
     cmap = mcolors.ListedColormap(cmap_colors)
 
-    # Remap jobs: -1 → num_jobs (the last color, gray)
-    color_indices = np.where(chosen_jobs == -1, num_jobs, chosen_jobs)
+    # Remap jobs: -1 → num_jobs_total (the last color, gray)
+    color_indices = np.where(chosen_jobs == -1, num_jobs_total, chosen_jobs)
 
     # Plot
     ax = axes[position]
@@ -383,7 +382,7 @@ def add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes,
     ax.grid(True)
 
     # Add colorbar with job names
-    ticks = list(range(num_jobs)) + [num_jobs]
+    ticks = list(range(num_jobs_total)) + [num_jobs_total]
     tick_labels = job_names + ["None"]
     cbar = fig.colorbar(scatter, ax=ax, ticks=ticks)
     cbar.ax.set_yticklabels(tick_labels)
@@ -391,8 +390,12 @@ def add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes,
 
     return fig, axes
 
-def add_social_filter_heatmap_subplot(agents, broadcasts, fig, axes, position):
-    """Add heatmap showing how each agent weights others via the social filter net."""
+def add_social_filter_cluster_map_subplot(agents, broadcasts, fig, axes, position):
+    """Add cluster map showing social filter weights with PCA-based ordering."""
+    from sklearn.decomposition import PCA
+    from scipy.cluster.hierarchy import linkage, leaves_list
+    from scipy.spatial.distance import pdist
+
     num_agents = len(agents)
 
     if hasattr(broadcasts, "detach"):
@@ -422,9 +425,24 @@ def add_social_filter_heatmap_subplot(agents, broadcasts, fig, axes, position):
 
     matrix = weights.cpu().numpy()
 
+    # PCA projection of the weight matrix to compute clustering order
+    n_components = min(matrix.shape[0], 2)
+    pca = PCA(n_components=n_components)
+    reduced = pca.fit_transform(matrix)
+
+    # Hierarchical clustering on PCA space
+    if len(reduced) > 1:
+        dist = pdist(reduced, metric="euclidean")
+        linkage_matrix = linkage(dist, method="average")
+        order = leaves_list(linkage_matrix)
+        ordered = matrix[order][:, order]
+    else:
+        ordered = matrix
+        order = list(range(num_agents))
+
     ax = axes[position]
-    im = ax.imshow(matrix, cmap="viridis", aspect="auto")
-    ax.set_title("Social Filter Weights")
+    im = ax.imshow(ordered, cmap="viridis", aspect="auto")
+    ax.set_title("Social Filter Cluster Map")
     ax.set_xlabel("Target Agent")
     ax.set_ylabel("Source Agent")
     fig.colorbar(im, ax=ax)
@@ -586,7 +604,7 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
 
         fig, axes = add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes, position=total_plots - 8, job_names=job_names)
 
-        fig, axes = add_social_filter_heatmap_subplot(agents, broadcasts, fig, axes, position=total_plots - 9)
+        fig, axes = add_social_filter_cluster_map_subplot(agents, broadcasts, fig, axes, position=total_plots - 9)
 
 
 
