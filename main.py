@@ -16,6 +16,7 @@ import imageio.v2 as imageio
 from scipy.optimize import linprog
 import matplotlib.colors as mcolors  # make sure this is imported at the top
 from random import randint
+import networkx as nx
 
 plt.switch_backend('agg')  # use non‑interactive backend for image generation
 
@@ -450,6 +451,53 @@ def add_social_filter_cluster_map_subplot(agents, broadcasts, fig, axes, positio
     return fig, axes
 
 
+def add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position):
+    """Plot a directed graph showing each agent's most attended peer."""
+    num_agents = len(agents)
+
+    if hasattr(broadcasts, "detach"):
+        broadcasts = broadcasts.detach()
+
+    favorites = []
+    for i, agent in enumerate(agents):
+        others_idx = [j for j in range(num_agents) if j != i]
+        if not others_idx:
+            favorites.append(None)
+            continue
+
+        others_broadcasts = broadcasts[others_idx]
+        ids_expanded = torch.stack([agents[j].id_vector.squeeze(0) for j in others_idx])
+        own_broadcast_exp = broadcasts[i].expand_as(others_broadcasts)
+        own_resources_exp = agent.resources.expand(len(others_idx), -1)
+        other_resources = torch.stack([agents[j].resources for j in others_idx]).squeeze(1)
+
+        pairwise = torch.cat([
+            own_broadcast_exp, others_broadcasts,
+            ids_expanded, other_resources, own_resources_exp
+        ], dim=-1)
+
+        scores = agent.social_filter_net(pairwise).squeeze(-1)
+        probs = F.softmax(scores, dim=0)
+        idx = torch.argmax(probs).item()
+        favorites.append(others_idx[idx])
+
+    G = nx.DiGraph()
+    for i in range(num_agents):
+        G.add_node(i)
+    for i, fav in enumerate(favorites):
+        if fav is not None:
+            G.add_edge(i, fav)
+
+    pos = nx.circular_layout(G)
+    ax = axes[position]
+    nx.draw(G, pos, ax=ax, with_labels=True, node_color='lightblue',
+            arrows=True, arrowstyle='->', arrowsize=10)
+    ax.set_title("Favorite Agent Graph")
+    ax.axis('off')
+
+    return fig, axes
+
+
 
 def add_effort_vs_consumption_subplot(agents, fig, axes, position):
     """Scatter plot comparing effort with total consumption for each agent."""
@@ -585,8 +633,9 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
     pairs = [(i, j) for i in range(num_resources) for j in range(i + 1, num_resources)]
     num_pairs = len(pairs)
 
-    # Total subplots: resource pairs + age histogram + supply/demand + job bar chart
-    total_plots = num_pairs + 14
+    # Total subplots: resource pairs + various diagnostics
+    # Increase count when new diagnostic plots are added
+    total_plots = num_pairs + 15
     ncols = 4
     nrows = (total_plots + 1) // ncols
 
@@ -605,6 +654,7 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
         fig, axes = add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes, position=total_plots - 8, job_names=job_names)
 
         fig, axes = add_social_filter_cluster_map_subplot(agents, broadcasts, fig, axes, position=total_plots - 9)
+        fig, axes = add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position=total_plots - 10)
 
 
 
