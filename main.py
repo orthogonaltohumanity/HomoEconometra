@@ -494,7 +494,6 @@ def compute_favorite_agent_graph(agents, broadcasts):
 
     return G
 
-
 def graph_topology_hash(G):
     """Return a stable hash for the directed graph topology without warnings."""
     with warnings.catch_warnings():
@@ -509,7 +508,6 @@ def graph_topology_hash(G):
             category=UserWarning,
         )
         return nx.weisfeiler_lehman_graph_hash(G)
-
 
 def add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position, graph=None):
     """Plot a directed graph showing each agent's most attended peer."""
