@@ -36,6 +36,9 @@ broadcast_history: list = []
 # Hashes of favorite-agent graphs for topology analysis
 favorite_graph_topology_history: list = []
 
+# Track the permutation order of the favorite agent graph at each step
+permutation_order_history: list = []
+
 # Numerical cutoff for treating tiny values as zero
 small_value_threshold = 1e-5
 
@@ -511,6 +514,36 @@ def graph_topology_hash(G):
         return nx.weisfeiler_lehman_graph_hash(G)
 
 
+def permutation_matrix_order(G):
+    """Return the order of a permutation represented by directed graph ``G``."""
+    import math
+
+    mapping = {}
+    for node in G.nodes():
+        succ = list(G.successors(node))
+        if len(succ) != 1:
+            return 0  # not a permutation
+        mapping[node] = succ[0]
+
+    visited = set()
+    cycle_lengths = []
+    for node in G.nodes():
+        if node in visited:
+            continue
+        current = node
+        length = 0
+        while current not in visited:
+            visited.add(current)
+            current = mapping[current]
+            length += 1
+        cycle_lengths.append(length)
+
+    order = 1
+    for l in cycle_lengths:
+        order = math.lcm(order, l)
+    return order
+
+
 def add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position, graph=None):
     """Plot a directed graph showing each agent's most attended peer."""
     G = graph if graph is not None else compute_favorite_agent_graph(agents, broadcasts)
@@ -541,6 +574,27 @@ def add_favorite_graph_topology_histogram_subplot(fig, axes, position):
     ax.set_xlabel("Topologies")
     ax.set_ylabel("Count")
     ax.set_title("Favorite Graph Topologies")
+
+    return fig, axes
+
+
+def add_permutation_order_subplot(order_history, step, fig, axes, position):
+    """Plot the permutation order of the favorite graph over time."""
+    import numpy as np
+
+    ax = axes[position]
+    if not order_history:
+        ax.axis('off')
+        return fig, axes
+
+    steps = np.arange(len(order_history))
+    orders = np.array(order_history)
+    ax.plot(steps, orders, marker='o', linestyle='-')
+    ax.set_xlim(max(0, step - 100), step)
+    ax.set_xlabel('Step')
+    ax.set_ylabel('Order')
+    ax.set_title('Permutation Order Over Time')
+    ax.grid(True)
 
     return fig, axes
 
@@ -682,7 +736,7 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
 
     # Total subplots: resource pairs + various diagnostics
     # Increase count when new diagnostic plots are added
-    total_plots = num_pairs + 16
+    total_plots = num_pairs + 17
     ncols = 4
     nrows = (total_plots + ncols - 1) // ncols
 
@@ -703,6 +757,7 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
         fig, axes = add_social_filter_cluster_map_subplot(agents, broadcasts, fig, axes, position=total_plots - 9)
         fig, axes = add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position=total_plots - 10, graph=favorite_graph)
         fig, axes = add_favorite_graph_topology_histogram_subplot(fig, axes, position=total_plots - 11)
+        fig, axes = add_permutation_order_subplot(permutation_order_history, step, fig, axes, position=total_plots - 12)
 
 
 
@@ -1158,6 +1213,7 @@ def run_simulation():
             favorite_graph = compute_favorite_agent_graph(agents, broadcasts)
             fg_hash = graph_topology_hash(favorite_graph)
             favorite_graph_topology_history.append(fg_hash)
+            permutation_order_history.append(permutation_matrix_order(favorite_graph))
 
             agents, all_optimizers = prune_underconsuming_agents(agents, min_vector)
             resource_history.append([
