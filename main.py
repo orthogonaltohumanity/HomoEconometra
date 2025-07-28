@@ -494,6 +494,7 @@ def compute_favorite_agent_graph(agents, broadcasts):
 
     return G
 
+
 def graph_topology_hash(G):
     """Return a stable hash for the directed graph topology without warnings."""
     with warnings.catch_warnings():
@@ -508,6 +509,7 @@ def graph_topology_hash(G):
             category=UserWarning,
         )
         return nx.weisfeiler_lehman_graph_hash(G)
+
 
 def add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position, graph=None):
     """Plot a directed graph showing each agent's most attended peer."""
@@ -532,12 +534,11 @@ def add_favorite_graph_topology_histogram_subplot(fig, axes, position):
         return fig, axes
 
     counts = Counter(favorite_graph_topology_history)
-    labels = list(counts.keys())
-    values = [counts[k] for k in labels]
+    sorted_items = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    values = [v for _, v in sorted_items]
     ax.bar(range(len(values)), values)
-    ax.set_xticks(range(len(labels)))
-    ax.set_xticklabels([h[:6] for h in labels], rotation=90)
-    ax.set_xlabel("Graph Hash")
+    ax.set_xticks([])
+    ax.set_xlabel("Topologies")
     ax.set_ylabel("Count")
     ax.set_title("Favorite Graph Topologies")
 
@@ -797,12 +798,12 @@ def plot_favorite_graph_topology_histogram():
         return
     from collections import Counter
     counts = Counter(favorite_graph_topology_history)
-    labels = list(counts.keys())
-    values = [counts[k] for k in labels]
+    sorted_items = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    values = [v for _, v in sorted_items]
     plt.figure(figsize=(8, 4))
     plt.bar(range(len(values)), values)
-    plt.xticks(range(len(labels)), [h[:6] for h in labels], rotation=90)
-    plt.xlabel("Graph Hash")
+    plt.xticks([])
+    plt.xlabel("Topologies")
     plt.ylabel("Occurrences")
     plt.title("Favorite Graph Topology Frequency")
     plt.tight_layout()
