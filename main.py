@@ -7,6 +7,7 @@ automatic differentiation and optimisation of the agents' neural networks.
 """
 
 import os
+import warnings
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -492,6 +493,22 @@ def compute_favorite_agent_graph(agents, broadcasts):
             G.add_edge(i, fav)
 
     return G
+
+
+def graph_topology_hash(G):
+    """Return a stable hash for the directed graph topology without warnings."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            "The hashes produced for directed graphs changed",
+            category=UserWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            "The hashes produced for graphs without node or edge attributes",
+            category=UserWarning,
+        )
+        return nx.weisfeiler_lehman_graph_hash(G)
 
 
 def add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position, graph=None):
@@ -1140,7 +1157,7 @@ def run_simulation():
             gini_history.append(gini_val)
 
             favorite_graph = compute_favorite_agent_graph(agents, broadcasts)
-            fg_hash = nx.weisfeiler_lehman_graph_hash(favorite_graph)
+            fg_hash = graph_topology_hash(favorite_graph)
             favorite_graph_topology_history.append(fg_hash)
 
             agents, all_optimizers = prune_underconsuming_agents(agents, min_vector)
