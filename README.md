@@ -95,6 +95,7 @@ Each time step logs:
 * Social attention weights (heatmaps)
 * Eigenvalue spectra of the communication space
 * Pre- and post-trade resource allocations
+* Histogram of favorite graph topologies across the simulation (shown in each diagnostic plot)
 
 
 ---
