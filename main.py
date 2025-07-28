@@ -7,6 +7,7 @@ automatic differentiation and optimisation of the agents' neural networks.
 """
 
 import os
+import warnings
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -31,6 +32,9 @@ resource_history: list = []
 
 # Saved broadcasts from each timestep for later analysis
 broadcast_history: list = []
+
+# Hashes of favorite-agent graphs for topology analysis
+favorite_graph_topology_history: list = []
 
 # Numerical cutoff for treating tiny values as zero
 small_value_threshold = 1e-5
@@ -451,8 +455,8 @@ def add_social_filter_cluster_map_subplot(agents, broadcasts, fig, axes, positio
     return fig, axes
 
 
-def add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position):
-    """Plot a directed graph showing each agent's most attended peer."""
+def compute_favorite_agent_graph(agents, broadcasts):
+    """Return a directed graph where each agent points to its most attended peer."""
     num_agents = len(agents)
 
     if hasattr(broadcasts, "detach"):
@@ -488,12 +492,55 @@ def add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position):
         if fav is not None:
             G.add_edge(i, fav)
 
+    return G
+
+
+def graph_topology_hash(G):
+    """Return a stable hash for the directed graph topology without warnings."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            "The hashes produced for directed graphs changed",
+            category=UserWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            "The hashes produced for graphs without node or edge attributes",
+            category=UserWarning,
+        )
+        return nx.weisfeiler_lehman_graph_hash(G)
+
+
+def add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position, graph=None):
+    """Plot a directed graph showing each agent's most attended peer."""
+    G = graph if graph is not None else compute_favorite_agent_graph(agents, broadcasts)
+
     pos = nx.circular_layout(G)
     ax = axes[position]
     nx.draw(G, pos, ax=ax, with_labels=True, node_color='lightblue',
             arrows=True, arrowstyle='->', arrowsize=10)
     ax.set_title("Favorite Agent Graph")
     ax.axis('off')
+
+    return fig, axes
+
+
+def add_favorite_graph_topology_histogram_subplot(fig, axes, position):
+    """Plot a histogram of favorite-graph topology counts so far."""
+    from collections import Counter
+    ax = axes[position]
+    if not favorite_graph_topology_history:
+        ax.axis('off')
+        return fig, axes
+
+    counts = Counter(favorite_graph_topology_history)
+    sorted_items = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    values = [v for _, v in sorted_items]
+    ax.bar(range(len(values)), values)
+    ax.set_xticks([])
+    ax.set_xlabel("Topologies")
+    ax.set_ylabel("Count")
+    ax.set_title("Favorite Graph Topologies")
 
     return fig, axes
 
@@ -600,7 +647,7 @@ def add_broadcast_eigenvalue_subplot(broadcasts, step, fig, axes, position):
 
     return fig, axes
 
-def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_names=None, chosen_jobs=None, jobs_per_agent=None):
+def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_names=None, chosen_jobs=None, jobs_per_agent=None, favorite_graph=None):
     """Visualize trading results along with several diagnostic subplots.
 
     Parameters
@@ -635,9 +682,9 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
 
     # Total subplots: resource pairs + various diagnostics
     # Increase count when new diagnostic plots are added
-    total_plots = num_pairs + 15
+    total_plots = num_pairs + 16
     ncols = 4
-    nrows = (total_plots + 1) // ncols
+    nrows = (total_plots + ncols - 1) // ncols
 
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(6 * ncols, 5 * nrows))
     axes = axes.flatten()
@@ -654,7 +701,8 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
         fig, axes = add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes, position=total_plots - 8, job_names=job_names)
 
         fig, axes = add_social_filter_cluster_map_subplot(agents, broadcasts, fig, axes, position=total_plots - 9)
-        fig, axes = add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position=total_plots - 10)
+        fig, axes = add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position=total_plots - 10, graph=favorite_graph)
+        fig, axes = add_favorite_graph_topology_histogram_subplot(fig, axes, position=total_plots - 11)
 
 
 
@@ -743,6 +791,23 @@ def generate_trade_gif():
         print(f"Saved animated gif to {gif_path}")
     else:
         print("No images found for GIF generation.")
+
+def plot_favorite_graph_topology_histogram():
+    """Plot how often each unique favorite-graph topology occurs."""
+    if not favorite_graph_topology_history:
+        return
+    from collections import Counter
+    counts = Counter(favorite_graph_topology_history)
+    sorted_items = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    values = [v for _, v in sorted_items]
+    plt.figure(figsize=(8, 4))
+    plt.bar(range(len(values)), values)
+    plt.xticks([])
+    plt.xlabel("Topologies")
+    plt.ylabel("Occurrences")
+    plt.title("Favorite Graph Topology Frequency")
+    plt.tight_layout()
+    plt.savefig("favorite_graph_topology_histogram.png")
 
 def seasonal_job_output(job, step, job_idx):
     """Return seasonally adjusted job output (currently unused)."""
@@ -1089,6 +1154,11 @@ def run_simulation():
             resource_totals = torch.stack([agent.resources.sum() for agent in agents])
             gini_val = gini(resource_totals)
             gini_history.append(gini_val)
+
+            favorite_graph = compute_favorite_agent_graph(agents, broadcasts)
+            fg_hash = graph_topology_hash(favorite_graph)
+            favorite_graph_topology_history.append(fg_hash)
+
             agents, all_optimizers = prune_underconsuming_agents(agents, min_vector)
             resource_history.append([
                 sum(agent.resources[0, r].item() for agent in agents)
@@ -1098,7 +1168,8 @@ def run_simulation():
                 job_names = [job['name'] for job in jobs]
                 plot_trade_with_supply_demand(before_trade, after_trade, step, agents=agents,
                                               broadcasts=broadcasts, job_names=job_names,
-                                              chosen_jobs=chosen_jobs, jobs_per_agent=jobs_per_agent)
+                                              chosen_jobs=chosen_jobs, jobs_per_agent=jobs_per_agent,
+                                              favorite_graph=favorite_graph)
 
 
 
@@ -1113,4 +1184,6 @@ if __name__ == "__main__":
     plt.xlabel("Step")
     plt.ylabel("Gini Coefficient")
     plt.savefig("gini_over_time.png")
+
+    plot_favorite_graph_topology_histogram()
 
