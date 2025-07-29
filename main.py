@@ -411,25 +411,26 @@ def add_social_filter_cluster_map_subplot(agents, broadcasts, fig, axes, positio
 
     weights = torch.zeros(num_agents, num_agents, device=broadcasts.device)
 
-    for i, agent in enumerate(agents):
-        other_indices = [j for j in range(num_agents) if j != i]
-        if not other_indices:
-            continue
+    with torch.no_grad():
+        for i, agent in enumerate(agents):
+            other_indices = [j for j in range(num_agents) if j != i]
+            if not other_indices:
+                continue
 
-        others_broadcasts = broadcasts[other_indices]
-        ids_expanded = torch.stack([agents[j].id_vector.squeeze(0) for j in other_indices])
-        own_broadcast_exp = broadcasts[i].expand_as(others_broadcasts)
-        own_resources_exp = agent.resources.expand(len(other_indices), -1)
-        other_resources = torch.stack([agents[j].resources for j in other_indices]).squeeze(1)
+            others_broadcasts = broadcasts[other_indices]
+            ids_expanded = torch.stack([agents[j].id_vector.squeeze(0) for j in other_indices])
+            own_broadcast_exp = broadcasts[i].expand_as(others_broadcasts)
+            own_resources_exp = agent.resources.expand(len(other_indices), -1)
+            other_resources = torch.stack([agents[j].resources for j in other_indices]).squeeze(1)
 
-        pairwise = torch.cat([
-            own_broadcast_exp, others_broadcasts,
-            ids_expanded, other_resources, own_resources_exp
-        ], dim=-1)
+            pairwise = torch.cat([
+                own_broadcast_exp, others_broadcasts,
+                ids_expanded, other_resources, own_resources_exp
+            ], dim=-1)
 
-        scores = agent.social_filter_net(pairwise).squeeze(-1)
-        probs = F.softmax(scores, dim=0)
-        weights[i, other_indices] = probs.detach()
+            scores = agent.social_filter_net(pairwise).squeeze(-1)
+            probs = F.softmax(scores, dim=0)
+            weights[i, other_indices] = probs.detach()
 
     matrix = weights.cpu().numpy()
 
@@ -466,27 +467,28 @@ def compute_favorite_agent_graph(agents, broadcasts):
         broadcasts = broadcasts.detach()
 
     favorites = []
-    for i, agent in enumerate(agents):
-        others_idx = [j for j in range(num_agents) if j != i]
-        if not others_idx:
-            favorites.append(None)
-            continue
+    with torch.no_grad():
+        for i, agent in enumerate(agents):
+            others_idx = [j for j in range(num_agents) if j != i]
+            if not others_idx:
+                favorites.append(None)
+                continue
 
-        others_broadcasts = broadcasts[others_idx]
-        ids_expanded = torch.stack([agents[j].id_vector.squeeze(0) for j in others_idx])
-        own_broadcast_exp = broadcasts[i].expand_as(others_broadcasts)
-        own_resources_exp = agent.resources.expand(len(others_idx), -1)
-        other_resources = torch.stack([agents[j].resources for j in others_idx]).squeeze(1)
+            others_broadcasts = broadcasts[others_idx]
+            ids_expanded = torch.stack([agents[j].id_vector.squeeze(0) for j in others_idx])
+            own_broadcast_exp = broadcasts[i].expand_as(others_broadcasts)
+            own_resources_exp = agent.resources.expand(len(others_idx), -1)
+            other_resources = torch.stack([agents[j].resources for j in others_idx]).squeeze(1)
 
-        pairwise = torch.cat([
-            own_broadcast_exp, others_broadcasts,
-            ids_expanded, other_resources, own_resources_exp
-        ], dim=-1)
+            pairwise = torch.cat([
+                own_broadcast_exp, others_broadcasts,
+                ids_expanded, other_resources, own_resources_exp
+            ], dim=-1)
 
-        scores = agent.social_filter_net(pairwise).squeeze(-1)
-        probs = F.softmax(scores, dim=0)
-        idx = torch.argmax(probs).item()
-        favorites.append(others_idx[idx])
+            scores = agent.social_filter_net(pairwise).squeeze(-1)
+            probs = F.softmax(scores, dim=0)
+            idx = torch.argmax(probs).item()
+            favorites.append(others_idx[idx])
 
     G = nx.DiGraph()
     for i in range(num_agents):
