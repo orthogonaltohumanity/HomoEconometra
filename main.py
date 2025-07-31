@@ -59,7 +59,7 @@ broadcast_dim = 6
 num_jobs = 2 
 
 # Size of the agent population
-num_agents = 30
+num_agents = 80
 
 # Reward given for resting instead of exerting effort
 alpha = 0.005
@@ -69,20 +69,20 @@ pgd_steps = 100
 pgd_lr = 0.01
 
 # Exponential penalty on maximum effort as agents age
-age_effort_penalty = 0.15
+age_effort_penalty = 0.05
 
 # History of inequality measure over time
 gini_history: list = []
 
 # Maximum lifespan of an agent (in steps)
-max_age = 60
+max_age = 10
 
 # Global rate at which unused resources decay each step
 decay_rate = 0.1
 
 #For an agent to survive to the next step, the inner product of their consumption and min_vector must be greater than min_const
 min_vector = torch.tensor([1.0,1.0], device=device)
-min_const = 0.1
+min_const = 0.01
 
 #Cap on how much of each resource can be produced per step
 resource_cap = torch.tensor([float("Inf"),float("Inf"),float("Inf")],device=device)
@@ -889,10 +889,10 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
 
         fig, axes = add_social_filter_cluster_map_subplot(agents, broadcasts, fig, axes, position=total_plots - 10)
         fig, axes = add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position=total_plots - 11, graph=favorite_graph)
-        fig, axes = add_favorite_graph_topology_histogram_subplot(fig, axes, position=total_plots - 12)
-        fig, axes = add_permutation_order_subplot(permutation_order_history, step, fig, axes, position=total_plots - 13)
+        #fig, axes = add_favorite_graph_topology_histogram_subplot(fig, axes, position=total_plots - 12)
+        #fig, axes = add_permutation_order_subplot(permutation_order_history, step, fig, axes, position=total_plots - 13)
         fig, axes = add_in_degree_histogram_subplot(favorite_graph, fig, axes, position=total_plots - 14)
-        fig, axes = add_out_degree_histogram_subplot(favorite_graph, fig, axes, position=total_plots - 15)
+        #fig, axes = add_out_degree_histogram_subplot(favorite_graph, fig, axes, position=total_plots - 15)
         fig, axes = add_pagerank_histogram_subplot(favorite_graph, fig, axes, position=total_plots - 16)
 
 
