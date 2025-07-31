@@ -260,9 +260,8 @@ def add_broadcast_pca_colored_subplot(broadcasts, agents, fig, axes, position, c
     pca = PCA(n_components=2)
     pca_proj = pca.fit_transform(broadcasts)
 
-    # Size of points based on resource pool
-    sizes = np.array([agent.resources.sum().item() for agent in agents])
-    sizes = normalize(sizes) * 200 + 10  # scale for visibility
+    # Uniform point size for clarity
+    sizes = np.full(len(agents), 40)
 
     # Choose coloring
     if color_by == "rgb":
@@ -359,10 +358,8 @@ def add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes,
     pca = PCA(n_components=2)
     pca_proj = pca.fit_transform(broadcasts)
 
-    # Agent sizes by total resources
-    sizes = np.array([agent.resources.sum().item() for agent in agents])
-    sizes = (sizes - sizes.min()) / (sizes.max() - sizes.min() + 1e-8)
-    sizes = sizes * 200 + 10
+    # Uniform point size for clarity
+    sizes = np.full(len(agents), 40)
 
 
     # Determine number of jobs and set up color map
@@ -457,6 +454,93 @@ def add_social_filter_cluster_map_subplot(agents, broadcasts, fig, axes, positio
     fig.colorbar(im, ax=ax)
 
     return fig, axes
+
+
+def compute_social_filter_kmeans_labels(agents, broadcasts, k=3):
+    """Cluster agents based on their social filtering weights.
+
+    Each agent's row of the social filter matrix is expressed in the eigenvector
+    basis of that matrix. The real and imaginary parts are concatenated and used
+    as features for k-means clustering.
+    """
+    from sklearn.cluster import KMeans
+
+    num_agents = len(agents)
+
+    if hasattr(broadcasts, "detach"):
+        broadcasts = broadcasts.detach()
+
+    weights = torch.zeros(num_agents, num_agents, device=broadcasts.device)
+
+    # Build social filter weight matrix
+    with torch.no_grad():
+        for i, agent in enumerate(agents):
+            other_indices = [j for j in range(num_agents) if j != i]
+            if not other_indices:
+                continue
+
+            others_broadcasts = broadcasts[other_indices]
+            ids_expanded = torch.stack([agents[j].id_vector.squeeze(0) for j in other_indices])
+            own_broadcast_exp = broadcasts[i].expand_as(others_broadcasts)
+            own_resources_exp = agent.resources.expand(len(other_indices), -1)
+            other_resources = torch.stack([agents[j].resources for j in other_indices]).squeeze(1)
+
+            pairwise = torch.cat([
+                own_broadcast_exp, others_broadcasts,
+                ids_expanded, other_resources, own_resources_exp
+            ], dim=-1)
+
+            scores = agent.social_filter_net(pairwise).squeeze(-1)
+            probs = F.softmax(scores, dim=0)
+            weights[i, other_indices] = probs.detach()
+
+    # Eigenvector coordinates (complex)
+    matrix = weights.cpu().numpy()
+    eigvals, eigvecs = np.linalg.eig(matrix)
+    eigvecs_inv = np.linalg.inv(eigvecs)
+    coords = matrix @ eigvecs_inv  # (N, N) complex coordinates
+
+    features = np.concatenate([coords.real, coords.imag], axis=1)
+
+    kmeans = KMeans(n_clusters=k, n_init="auto", random_state=0)
+    labels = kmeans.fit_predict(features)
+
+    return labels
+
+
+def add_broadcast_pca_colored_by_cluster(broadcasts, agents, labels, fig, axes, position):
+    """Add a broadcast PCA subplot colored by precomputed cluster labels."""
+    import matplotlib.colors as mcolors
+
+    if hasattr(broadcasts, "detach"):
+        broadcasts = broadcasts.detach().cpu().numpy()
+
+    # Compute PCA of broadcast vectors
+    from sklearn.decomposition import PCA
+    pca = PCA(n_components=2)
+    pca_proj = pca.fit_transform(broadcasts)
+
+    # Uniform point size for clarity
+    sizes = np.full(len(agents), 40)
+
+    num_clusters = len(set(labels))
+    base_colors = plt.get_cmap("tab10").colors
+    cmap_colors = [base_colors[i % len(base_colors)] for i in range(num_clusters)]
+    cmap = mcolors.ListedColormap(cmap_colors)
+
+    ax = axes[position]
+    scatter = ax.scatter(pca_proj[:, 0], pca_proj[:, 1], c=labels, cmap=cmap,
+                         s=sizes, alpha=0.85)
+    ax.set_title("Broadcast PCA Colored by Cluster")
+    ax.set_xlabel("PC1")
+    ax.set_ylabel("PC2")
+    ax.grid(True)
+
+    cbar = fig.colorbar(scatter, ax=ax, ticks=range(num_clusters))
+    cbar.set_label("Cluster")
+
+    return fig, axes
+
 
 
 def compute_favorite_agent_graph(agents, broadcasts):
@@ -754,12 +838,15 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
         fig, axes = add_broadcast_pca_colored_subplot(broadcasts, agents, fig, axes, position=total_plots - 6, color_by="consumption")
         fig, axes = add_broadcast_pca_colored_subplot(broadcasts, agents, fig, axes, position=total_plots - 7, color_by="production")
 
-        fig, axes = add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes, position=total_plots - 8, job_names=job_names)
+        cluster_labels = compute_social_filter_kmeans_labels(agents, broadcasts)
+        fig, axes = add_broadcast_pca_colored_by_cluster(broadcasts, agents, cluster_labels, fig, axes, position=total_plots - 8)
 
-        fig, axes = add_social_filter_cluster_map_subplot(agents, broadcasts, fig, axes, position=total_plots - 9)
-        fig, axes = add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position=total_plots - 10, graph=favorite_graph)
-        fig, axes = add_favorite_graph_topology_histogram_subplot(fig, axes, position=total_plots - 11)
-        fig, axes = add_permutation_order_subplot(permutation_order_history, step, fig, axes, position=total_plots - 12)
+        fig, axes = add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes, position=total_plots - 9, job_names=job_names)
+
+        fig, axes = add_social_filter_cluster_map_subplot(agents, broadcasts, fig, axes, position=total_plots - 10)
+        fig, axes = add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position=total_plots - 11, graph=favorite_graph)
+        fig, axes = add_favorite_graph_topology_histogram_subplot(fig, axes, position=total_plots - 12)
+        fig, axes = add_permutation_order_subplot(permutation_order_history, step, fig, axes, position=total_plots - 13)
 
 
 
