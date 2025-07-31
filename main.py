@@ -456,6 +456,75 @@ def add_social_filter_cluster_map_subplot(agents, broadcasts, fig, axes, positio
     return fig, axes
 
 
+def compute_social_weight_matrix(agents, broadcasts):
+    """Return a matrix of social attention weights between agents."""
+    num_agents = len(agents)
+
+    if hasattr(broadcasts, "detach"):
+        broadcasts = broadcasts.detach()
+
+    weights = torch.zeros(num_agents, num_agents, device=broadcasts.device)
+
+    with torch.no_grad():
+        for i, agent in enumerate(agents):
+            other_indices = [j for j in range(num_agents) if j != i]
+            if not other_indices:
+                continue
+
+            others_broadcasts = broadcasts[other_indices]
+            ids_expanded = torch.stack([agents[j].id_vector.squeeze(0) for j in other_indices])
+            own_broadcast_exp = broadcasts[i].expand_as(others_broadcasts)
+            own_resources_exp = agent.resources.expand(len(other_indices), -1)
+            other_resources = torch.stack([agents[j].resources for j in other_indices]).squeeze(1)
+
+            pairwise = torch.cat([
+                own_broadcast_exp, others_broadcasts,
+                ids_expanded, other_resources, own_resources_exp
+            ], dim=-1)
+
+            scores = agent.social_filter_net(pairwise).squeeze(-1)
+            probs = F.softmax(scores, dim=0)
+            weights[i, other_indices] = probs.detach()
+
+    return weights
+
+
+def compute_social_clusters(agents, broadcasts, num_centers=3):
+    """Return cluster assignments and centers using weighted clustering."""
+    weights = compute_social_weight_matrix(agents, broadcasts)
+    sym = (weights + weights.t()) / 2
+    matrix = sym.cpu().numpy()
+    G = nx.from_numpy_array(matrix)
+    coeffs = nx.clustering(G, weight="weight")
+    sorted_nodes = sorted(coeffs.items(), key=lambda x: x[1], reverse=True)
+    centers = [n for n, _ in sorted_nodes[:num_centers]]
+
+    assignments = {}
+    for i in range(len(agents)):
+        if i in centers:
+            assignments[i] = centers.index(i)
+        else:
+            best = max(centers, key=lambda c: matrix[i, c])
+            assignments[i] = centers.index(best)
+
+    return assignments, centers, G
+
+
+def pagerank_from_transition_matrix(P, damping=0.85, max_iter=100, tol=1e-6):
+    """Compute PageRank for a transition matrix P using power iteration."""
+    n = P.size(0)
+    rank = torch.full((n,), 1.0 / n, device=P.device)
+    teleport = torch.full((n,), 1.0 / n, device=P.device)
+
+    for _ in range(max_iter):
+        new_rank = damping * torch.mv(P.t(), rank) + (1 - damping) * teleport
+        if torch.norm(new_rank - rank, p=1) < tol:
+            rank = new_rank
+            break
+        rank = new_rank
+    return rank
+
+
 def compute_social_filter_kmeans_labels(agents, broadcasts, k=3):
     """Cluster agents based on their social filtering weights.
 
@@ -630,16 +699,22 @@ def permutation_matrix_order(G):
     return order
 
 
-def add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position, graph=None):
-    """Plot a directed graph showing each agent's most attended peer."""
-    G = graph if graph is not None else compute_favorite_agent_graph(agents, broadcasts)
+def add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position, num_centers=3):
+    """Visualize social clusters derived from the social weight matrix."""
+    assignments, centers, G = compute_social_clusters(agents, broadcasts, num_centers)
 
-    pos = nx.circular_layout(G)
+    pos = nx.spring_layout(G, weight="weight", seed=0)
+    base_colors = plt.get_cmap("tab10").colors
+    colors = [base_colors[assignments[i] % len(base_colors)] for i in G.nodes()]
+    sizes = [600 if i in centers else 300 for i in G.nodes()]
+
     ax = axes[position]
-    nx.draw(G, pos, ax=ax, with_labels=True, node_color='lightblue',
-            arrows=True, arrowstyle='->', arrowsize=10)
-    ax.set_title("Favorite Agent Graph")
-    ax.axis('off')
+    edges = [(u, v) for u, v, d in G.edges(data=True) if d.get("weight", 0) > 0.05]
+    nx.draw_networkx_edges(G, pos, ax=ax, edgelist=edges, alpha=0.5)
+    nx.draw_networkx_nodes(G, pos, ax=ax, node_color=colors, node_size=sizes)
+    nx.draw_networkx_labels(G, pos, ax=ax)
+    ax.set_title("Social Cluster Graph")
+    ax.axis("off")
 
     return fig, axes
 
@@ -713,10 +788,15 @@ def add_out_degree_histogram_subplot(graph, fig, axes, position):
     return fig, axes
 
 
-def add_pagerank_histogram_subplot(graph, fig, axes, position):
-    """Plot sorted PageRank scores of the graph."""
-    pr = nx.pagerank(graph)
-    values = sorted(pr.values(), reverse=True)
+def add_pagerank_histogram_subplot(agents, broadcasts, fig, axes, position):
+    """Plot sorted PageRank scores computed from the social weight matrix."""
+    weights = compute_social_weight_matrix(agents, broadcasts)
+    matrix = weights.cpu().numpy()
+    row_sums = matrix.sum(axis=1, keepdims=True)
+    row_sums[row_sums == 0] = 1.0
+    transition = matrix / row_sums
+    pr_vector = pagerank_from_transition_matrix(torch.tensor(transition, device=weights.device))
+    values = sorted(pr_vector.tolist(), reverse=True)
 
     ax = axes[position]
     ax.bar(range(len(values)), values)
@@ -888,12 +968,12 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
         fig, axes = add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes, position=total_plots - 9, job_names=job_names)
 
         fig, axes = add_social_filter_cluster_map_subplot(agents, broadcasts, fig, axes, position=total_plots - 10)
-        fig, axes = add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position=total_plots - 11, graph=favorite_graph)
+        fig, axes = add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position=total_plots - 11)
         #fig, axes = add_favorite_graph_topology_histogram_subplot(fig, axes, position=total_plots - 12)
         #fig, axes = add_permutation_order_subplot(permutation_order_history, step, fig, axes, position=total_plots - 13)
         fig, axes = add_in_degree_histogram_subplot(favorite_graph, fig, axes, position=total_plots - 14)
         #fig, axes = add_out_degree_histogram_subplot(favorite_graph, fig, axes, position=total_plots - 15)
-        fig, axes = add_pagerank_histogram_subplot(favorite_graph, fig, axes, position=total_plots - 16)
+        fig, axes = add_pagerank_histogram_subplot(agents, broadcasts, fig, axes, position=total_plots - 16)
 
 
 
