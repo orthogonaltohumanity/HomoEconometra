@@ -260,9 +260,8 @@ def add_broadcast_pca_colored_subplot(broadcasts, agents, fig, axes, position, c
     pca = PCA(n_components=2)
     pca_proj = pca.fit_transform(broadcasts)
 
-    # Size of points based on resource pool
-    sizes = np.array([agent.resources.sum().item() for agent in agents])
-    sizes = normalize(sizes) * 200 + 10  # scale for visibility
+    # Uniform point size for clarity
+    sizes = np.full(len(agents), 40)
 
     # Choose coloring
     if color_by == "rgb":
@@ -359,10 +358,8 @@ def add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes,
     pca = PCA(n_components=2)
     pca_proj = pca.fit_transform(broadcasts)
 
-    # Agent sizes by total resources
-    sizes = np.array([agent.resources.sum().item() for agent in agents])
-    sizes = (sizes - sizes.min()) / (sizes.max() - sizes.min() + 1e-8)
-    sizes = sizes * 200 + 10
+    # Uniform point size for clarity
+    sizes = np.full(len(agents), 40)
 
 
     # Determine number of jobs and set up color map
@@ -460,16 +457,13 @@ def add_social_filter_cluster_map_subplot(agents, broadcasts, fig, axes, positio
 
 
 def compute_social_filter_kmeans_labels(agents, broadcasts, k=3):
-    """Cluster agents via k-means on eigenvector representations of social filter weights.
+    """Cluster agents based on their social filtering weights.
 
-    The social filter weight matrix is expressed in the eigenvector basis.  Each
-    agent's row in this complex coordinate space is used to perform k-means. The
-    real and imaginary parts are treated as separate dimensions so that the
-    clustering occurs in the complex space.  The function also returns a PCA
-    projection of these complex coordinates for visualisation.
+    Each agent's row of the social filter matrix is expressed in the eigenvector
+    basis of that matrix. The real and imaginary parts are concatenated and used
+    as features for k-means clustering.
     """
     from sklearn.cluster import KMeans
-    from sklearn.decomposition import PCA
 
     num_agents = len(agents)
 
@@ -503,32 +497,31 @@ def compute_social_filter_kmeans_labels(agents, broadcasts, k=3):
     # Eigenvector coordinates (complex)
     matrix = weights.cpu().numpy()
     eigvals, eigvecs = np.linalg.eig(matrix)
-    coords_complex = matrix @ eigvecs  # (N, N) complex
+    eigvecs_inv = np.linalg.inv(eigvecs)
+    coords = matrix @ eigvecs_inv  # (N, N) complex coordinates
 
-    # Features for clustering: concatenate real and imaginary parts
-    features = np.concatenate([coords_complex.real, coords_complex.imag], axis=1)
+    features = np.concatenate([coords.real, coords.imag], axis=1)
 
-    # K-means clustering
-    kmeans = KMeans(n_clusters=k, n_init='auto', random_state=0)
+    kmeans = KMeans(n_clusters=k, n_init="auto", random_state=0)
     labels = kmeans.fit_predict(features)
 
-    # PCA projection for visualisation
-    pca = PCA(n_components=2)
-    pca_proj = pca.fit_transform(features)
-
-    return labels, pca_proj
+    return labels
 
 
-def add_broadcast_pca_colored_by_cluster(pca_proj, agents, labels, fig, axes, position):
-    """Add a scatter plot of complex PCA projections colored by cluster labels."""
+def add_broadcast_pca_colored_by_cluster(broadcasts, agents, labels, fig, axes, position):
+    """Add a broadcast PCA subplot colored by precomputed cluster labels."""
     import matplotlib.colors as mcolors
 
-    if hasattr(pca_proj, "detach"):
-        pca_proj = pca_proj.detach().cpu().numpy()
+    if hasattr(broadcasts, "detach"):
+        broadcasts = broadcasts.detach().cpu().numpy()
 
-    sizes = np.array([agent.resources.sum().item() for agent in agents])
-    sizes = (sizes - sizes.min()) / (sizes.max() - sizes.min() + 1e-8)
-    sizes = sizes * 200 + 10
+    # Compute PCA of broadcast vectors
+    from sklearn.decomposition import PCA
+    pca = PCA(n_components=2)
+    pca_proj = pca.fit_transform(broadcasts)
+
+    # Uniform point size for clarity
+    sizes = np.full(len(agents), 40)
 
     num_clusters = len(set(labels))
     base_colors = plt.get_cmap("tab10").colors
@@ -538,7 +531,7 @@ def add_broadcast_pca_colored_by_cluster(pca_proj, agents, labels, fig, axes, po
     ax = axes[position]
     scatter = ax.scatter(pca_proj[:, 0], pca_proj[:, 1], c=labels, cmap=cmap,
                          s=sizes, alpha=0.85)
-    ax.set_title("Complex PCA Colored by Cluster")
+    ax.set_title("Broadcast PCA Colored by Cluster")
     ax.set_xlabel("PC1")
     ax.set_ylabel("PC2")
     ax.grid(True)
@@ -547,6 +540,7 @@ def add_broadcast_pca_colored_by_cluster(pca_proj, agents, labels, fig, axes, po
     cbar.set_label("Cluster")
 
     return fig, axes
+
 
 
 def compute_favorite_agent_graph(agents, broadcasts):
@@ -844,8 +838,10 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
         fig, axes = add_broadcast_pca_colored_subplot(broadcasts, agents, fig, axes, position=total_plots - 6, color_by="consumption")
         fig, axes = add_broadcast_pca_colored_subplot(broadcasts, agents, fig, axes, position=total_plots - 7, color_by="production")
 
-        cluster_labels, cluster_pca = compute_social_filter_kmeans_labels(agents, broadcasts)
-        fig, axes = add_broadcast_pca_colored_by_cluster(cluster_pca, agents, cluster_labels, fig, axes, position=total_plots - 8)
+
+        cluster_labels = compute_social_filter_kmeans_labels(agents, broadcasts)
+        fig, axes = add_broadcast_pca_colored_by_cluster(broadcasts, agents, cluster_labels, fig, axes, position=total_plots - 8)
+
 
         fig, axes = add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes, position=total_plots - 9, job_names=job_names)
 
