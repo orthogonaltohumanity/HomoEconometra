@@ -490,7 +490,13 @@ def compute_social_weight_matrix(agents, broadcasts):
 
 
 def compute_social_clusters(agents, broadcasts, num_centers=3):
-    """Return cluster assignments and centers using weighted clustering."""
+    """Assign agents to social clusters based on clustering coefficients.
+
+    The agents with the top ``num_centers`` clustering coefficients are chosen
+    as cluster centers. Every agent is then assigned to the center to which it
+    gives the highest social weight (its "favorite" among the centers).
+    """
+
     weights = compute_social_weight_matrix(agents, broadcasts)
     sym = (weights + weights.t()) / 2
     matrix = sym.cpu().numpy()
@@ -504,8 +510,9 @@ def compute_social_clusters(agents, broadcasts, num_centers=3):
         if i in centers:
             assignments[i] = centers.index(i)
         else:
-            best = max(centers, key=lambda c: matrix[i, c])
-            assignments[i] = centers.index(best)
+            center_weights = weights[i, centers]
+            best_idx = torch.argmax(center_weights).item()
+            assignments[i] = best_idx
 
     return assignments, centers, G
 
@@ -525,55 +532,11 @@ def pagerank_from_transition_matrix(P, damping=0.85, max_iter=100, tol=1e-6):
     return rank
 
 
-def compute_social_filter_kmeans_labels(agents, broadcasts, k=3):
-    """Cluster agents based on their social filtering weights.
+def compute_social_cluster_labels(agents, broadcasts, k=3):
+    """Return cluster labels using ``compute_social_clusters``."""
 
-    Each agent's row of the social filter matrix is expressed in the eigenvector
-    basis of that matrix. The real and imaginary parts are concatenated and used
-    as features for k-means clustering.
-    """
-    from sklearn.cluster import KMeans
-
-    num_agents = len(agents)
-
-    if hasattr(broadcasts, "detach"):
-        broadcasts = broadcasts.detach()
-
-    weights = torch.zeros(num_agents, num_agents, device=broadcasts.device)
-
-    # Build social filter weight matrix
-    with torch.no_grad():
-        for i, agent in enumerate(agents):
-            other_indices = [j for j in range(num_agents) if j != i]
-            if not other_indices:
-                continue
-
-            others_broadcasts = broadcasts[other_indices]
-            ids_expanded = torch.stack([agents[j].id_vector.squeeze(0) for j in other_indices])
-            own_broadcast_exp = broadcasts[i].expand_as(others_broadcasts)
-            own_resources_exp = agent.resources.expand(len(other_indices), -1)
-            other_resources = torch.stack([agents[j].resources for j in other_indices]).squeeze(1)
-
-            pairwise = torch.cat([
-                own_broadcast_exp, others_broadcasts,
-                ids_expanded, other_resources, own_resources_exp
-            ], dim=-1)
-
-            scores = agent.social_filter_net(pairwise).squeeze(-1)
-            probs = F.softmax(scores, dim=0)
-            weights[i, other_indices] = probs.detach()
-
-    # Eigenvector coordinates (complex)
-    matrix = weights.cpu().numpy()
-    eigvals, eigvecs = np.linalg.eig(matrix)
-    eigvecs_inv = np.linalg.inv(eigvecs)
-    coords = matrix @ eigvecs_inv  # (N, N) complex coordinates
-
-    features = np.concatenate([coords.real, coords.imag], axis=1)
-
-    kmeans = KMeans(n_clusters=k, n_init="auto", random_state=0)
-    labels = kmeans.fit_predict(features)
-
+    assignments, centers, _ = compute_social_clusters(agents, broadcasts, num_centers=k)
+    labels = [assignments[i] for i in range(len(agents))]
     return labels
 
 
@@ -961,7 +924,7 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
         fig, axes = add_broadcast_pca_colored_subplot(broadcasts, agents, fig, axes, position=total_plots - 7, color_by="production")
 
 
-        cluster_labels = compute_social_filter_kmeans_labels(agents, broadcasts)
+        cluster_labels = compute_social_cluster_labels(agents, broadcasts)
         fig, axes = add_broadcast_pca_colored_by_cluster(broadcasts, agents, cluster_labels, fig, axes, position=total_plots - 8)
 
 
