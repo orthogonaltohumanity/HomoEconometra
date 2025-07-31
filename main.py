@@ -685,6 +685,48 @@ def add_permutation_order_subplot(order_history, step, fig, axes, position):
     return fig, axes
 
 
+def add_in_degree_histogram_subplot(graph, fig, axes, position):
+    """Plot sorted in-degree centrality of the graph."""
+    degrees = nx.in_degree_centrality(graph)
+    values = sorted(degrees.values(), reverse=True)
+
+    ax = axes[position]
+    ax.bar(range(len(values)), values)
+    ax.set_title("In-Degree Centrality")
+    ax.set_xlabel("Agent Rank")
+    ax.set_ylabel("Centrality")
+
+    return fig, axes
+
+
+def add_out_degree_histogram_subplot(graph, fig, axes, position):
+    """Plot sorted out-degree centrality of the graph."""
+    degrees = nx.out_degree_centrality(graph)
+    values = sorted(degrees.values(), reverse=True)
+
+    ax = axes[position]
+    ax.bar(range(len(values)), values)
+    ax.set_title("Out-Degree Centrality")
+    ax.set_xlabel("Agent Rank")
+    ax.set_ylabel("Centrality")
+
+    return fig, axes
+
+
+def add_pagerank_histogram_subplot(graph, fig, axes, position):
+    """Plot sorted PageRank scores of the graph."""
+    pr = nx.pagerank(graph)
+    values = sorted(pr.values(), reverse=True)
+
+    ax = axes[position]
+    ax.bar(range(len(values)), values)
+    ax.set_title("PageRank Scores")
+    ax.set_xlabel("Agent Rank")
+    ax.set_ylabel("Score")
+
+    return fig, axes
+
+
 
 def add_effort_vs_consumption_subplot(agents, fig, axes, position):
     """Scatter plot comparing effort with total consumption for each agent."""
@@ -822,7 +864,7 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
 
     # Total subplots: resource pairs + various diagnostics
     # Increase count when new diagnostic plots are added
-    total_plots = num_pairs + 17
+    total_plots = num_pairs + 20
     ncols = 4
     nrows = (total_plots + ncols - 1) // ncols
 
@@ -849,6 +891,9 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
         fig, axes = add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position=total_plots - 11, graph=favorite_graph)
         fig, axes = add_favorite_graph_topology_histogram_subplot(fig, axes, position=total_plots - 12)
         fig, axes = add_permutation_order_subplot(permutation_order_history, step, fig, axes, position=total_plots - 13)
+        fig, axes = add_in_degree_histogram_subplot(favorite_graph, fig, axes, position=total_plots - 14)
+        fig, axes = add_out_degree_histogram_subplot(favorite_graph, fig, axes, position=total_plots - 15)
+        fig, axes = add_pagerank_histogram_subplot(favorite_graph, fig, axes, position=total_plots - 16)
 
 
 
