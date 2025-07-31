@@ -460,8 +460,17 @@ def add_social_filter_cluster_map_subplot(agents, broadcasts, fig, axes, positio
 
 
 def compute_social_filter_kmeans_labels(agents, broadcasts, k=3):
-    """Cluster agents via k-means on eigenvector representations of social filter weights."""
+    """Cluster agents via k-means on eigenvector representations of social filter weights.
+
+    The social filter weight matrix is expressed in the eigenvector basis.  Each
+    agent's row in this complex coordinate space is used to perform k-means. The
+    real and imaginary parts are treated as separate dimensions so that the
+    clustering occurs in the complex space.  The function also returns a PCA
+    projection of these complex coordinates for visualisation.
+    """
     from sklearn.cluster import KMeans
+    from sklearn.decomposition import PCA
+
     num_agents = len(agents)
 
     if hasattr(broadcasts, "detach"):
@@ -469,6 +478,7 @@ def compute_social_filter_kmeans_labels(agents, broadcasts, k=3):
 
     weights = torch.zeros(num_agents, num_agents, device=broadcasts.device)
 
+    # Build social filter weight matrix
     with torch.no_grad():
         for i, agent in enumerate(agents):
             other_indices = [j for j in range(num_agents) if j != i]
@@ -490,26 +500,31 @@ def compute_social_filter_kmeans_labels(agents, broadcasts, k=3):
             probs = F.softmax(scores, dim=0)
             weights[i, other_indices] = probs.detach()
 
+    # Eigenvector coordinates (complex)
     matrix = weights.cpu().numpy()
     eigvals, eigvecs = np.linalg.eig(matrix)
-    coords = np.real(matrix @ eigvecs)
+    coords_complex = matrix @ eigvecs  # (N, N) complex
 
+    # Features for clustering: concatenate real and imaginary parts
+    features = np.concatenate([coords_complex.real, coords_complex.imag], axis=1)
+
+    # K-means clustering
     kmeans = KMeans(n_clusters=k, n_init='auto', random_state=0)
-    labels = kmeans.fit_predict(coords)
+    labels = kmeans.fit_predict(features)
 
-    return labels
+    # PCA projection for visualisation
+    pca = PCA(n_components=2)
+    pca_proj = pca.fit_transform(features)
+
+    return labels, pca_proj
 
 
-def add_broadcast_pca_colored_by_cluster(broadcasts, agents, labels, fig, axes, position):
-    """Add a PCA scatter of broadcasts colored by k-means cluster labels."""
-    from sklearn.decomposition import PCA
+def add_broadcast_pca_colored_by_cluster(pca_proj, agents, labels, fig, axes, position):
+    """Add a scatter plot of complex PCA projections colored by cluster labels."""
     import matplotlib.colors as mcolors
 
-    if hasattr(broadcasts, "detach"):
-        broadcasts = broadcasts.detach().cpu().numpy()
-
-    pca = PCA(n_components=2)
-    pca_proj = pca.fit_transform(broadcasts)
+    if hasattr(pca_proj, "detach"):
+        pca_proj = pca_proj.detach().cpu().numpy()
 
     sizes = np.array([agent.resources.sum().item() for agent in agents])
     sizes = (sizes - sizes.min()) / (sizes.max() - sizes.min() + 1e-8)
@@ -521,8 +536,9 @@ def add_broadcast_pca_colored_by_cluster(broadcasts, agents, labels, fig, axes, 
     cmap = mcolors.ListedColormap(cmap_colors)
 
     ax = axes[position]
-    scatter = ax.scatter(pca_proj[:, 0], pca_proj[:, 1], c=labels, cmap=cmap, s=sizes, alpha=0.85)
-    ax.set_title("Broadcasts Colored by Cluster")
+    scatter = ax.scatter(pca_proj[:, 0], pca_proj[:, 1], c=labels, cmap=cmap,
+                         s=sizes, alpha=0.85)
+    ax.set_title("Complex PCA Colored by Cluster")
     ax.set_xlabel("PC1")
     ax.set_ylabel("PC2")
     ax.grid(True)
@@ -828,8 +844,8 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
         fig, axes = add_broadcast_pca_colored_subplot(broadcasts, agents, fig, axes, position=total_plots - 6, color_by="consumption")
         fig, axes = add_broadcast_pca_colored_subplot(broadcasts, agents, fig, axes, position=total_plots - 7, color_by="production")
 
-        cluster_labels = compute_social_filter_kmeans_labels(agents, broadcasts)
-        fig, axes = add_broadcast_pca_colored_by_cluster(broadcasts, agents, cluster_labels, fig, axes, position=total_plots - 8)
+        cluster_labels, cluster_pca = compute_social_filter_kmeans_labels(agents, broadcasts)
+        fig, axes = add_broadcast_pca_colored_by_cluster(cluster_pca, agents, cluster_labels, fig, axes, position=total_plots - 8)
 
         fig, axes = add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes, position=total_plots - 9, job_names=job_names)
 
