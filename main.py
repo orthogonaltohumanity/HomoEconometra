@@ -59,7 +59,7 @@ broadcast_dim = 6
 num_jobs = 2 
 
 # Size of the agent population
-num_agents = 80
+num_agents = 50
 
 # Reward given for resting instead of exerting effort
 alpha = 0.005
@@ -940,15 +940,15 @@ def plot_trade_with_supply_demand(before, after, step, agents, broadcasts, job_n
         fig, axes = add_broadcast_pca_colored_by_cluster(broadcasts, agents, cluster_labels, fig, axes, position=total_plots - 8)
 
 
-        fig, axes = add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes, position=total_plots - 9, job_names=job_names)
+        #fig, axes = add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes, position=total_plots - 9, job_names=job_names)
 
-        fig, axes = add_social_filter_cluster_map_subplot(agents, broadcasts, fig, axes, position=total_plots - 10)
-        fig, axes = add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position=total_plots - 11)
+        fig, axes = add_social_filter_cluster_map_subplot(agents, broadcasts, fig, axes, position=total_plots - 9)
+        fig, axes = add_favorite_agent_graph_subplot(agents, broadcasts, fig, axes, position=total_plots - 10)
         #fig, axes = add_favorite_graph_topology_histogram_subplot(fig, axes, position=total_plots - 12)
         #fig, axes = add_permutation_order_subplot(permutation_order_history, step, fig, axes, position=total_plots - 13)
-        fig, axes = add_in_degree_histogram_subplot(favorite_graph, fig, axes, position=total_plots - 14)
+        fig, axes = add_in_degree_histogram_subplot(favorite_graph, fig, axes, position=total_plots - 11)
         #fig, axes = add_out_degree_histogram_subplot(favorite_graph, fig, axes, position=total_plots - 15)
-        fig, axes = add_pagerank_histogram_subplot(agents, broadcasts, fig, axes, position=total_plots - 16)
+        fig, axes = add_pagerank_histogram_subplot(agents, broadcasts, fig, axes, position=total_plots - 12)
 
 
 
