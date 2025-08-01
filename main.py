@@ -260,8 +260,8 @@ def add_broadcast_pca_colored_subplot(broadcasts, agents, fig, axes, position, c
     pca = PCA(n_components=2)
     pca_proj = pca.fit_transform(broadcasts)
 
-    # Uniform point size for clarity
-    sizes = np.full(len(agents), 40)
+    coeffs = compute_weighted_clustering_coefficients(agents, broadcasts)
+    sizes = 30 + 200 * coeffs
 
     # Choose coloring
     if color_by == "rgb":
@@ -358,8 +358,8 @@ def add_broadcast_pca_colored_by_job(broadcasts, agents, chosen_jobs, fig, axes,
     pca = PCA(n_components=2)
     pca_proj = pca.fit_transform(broadcasts)
 
-    # Uniform point size for clarity
-    sizes = np.full(len(agents), 40)
+    coeffs = compute_weighted_clustering_coefficients(agents, broadcasts)
+    sizes = 30 + 200 * coeffs
 
 
     # Determine number of jobs and set up color map
@@ -517,6 +517,18 @@ def compute_social_clusters(agents, broadcasts, num_centers=3):
     return assignments, centers, G
 
 
+def compute_weighted_clustering_coefficients(agents, broadcasts):
+    """Return each agent's weighted clustering coefficient."""
+
+    weights = compute_social_weight_matrix(agents, broadcasts)
+    sym = (weights + weights.t()) / 2
+    matrix = sym.cpu().numpy()
+    G = nx.from_numpy_array(matrix)
+    coeffs_dict = nx.clustering(G, weight="weight")
+    coeffs = np.array([coeffs_dict[i] for i in range(len(agents))])
+    return coeffs
+
+
 def pagerank_from_transition_matrix(P, damping=0.85, max_iter=100, tol=1e-6):
     """Compute PageRank for a transition matrix P using power iteration."""
     n = P.size(0)
@@ -552,8 +564,8 @@ def add_broadcast_pca_colored_by_cluster(broadcasts, agents, labels, fig, axes, 
     pca = PCA(n_components=2)
     pca_proj = pca.fit_transform(broadcasts)
 
-    # Uniform point size for clarity
-    sizes = np.full(len(agents), 40)
+    coeffs = compute_weighted_clustering_coefficients(agents, broadcasts)
+    sizes = 30 + 200 * coeffs
 
     num_clusters = len(set(labels))
     base_colors = plt.get_cmap("tab10").colors
