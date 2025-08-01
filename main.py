@@ -460,8 +460,16 @@ def compute_social_weight_matrix(agents, broadcasts):
     """Return a matrix of social attention weights between agents."""
     num_agents = len(agents)
 
-    if hasattr(broadcasts, "detach"):
-        broadcasts = broadcasts.detach()
+    # Ensure broadcasts are a torch tensor on the correct device
+    if isinstance(broadcasts, np.ndarray):
+        device = agents[0].resources.device
+        broadcasts = torch.tensor(broadcasts, dtype=agents[0].resources.dtype,
+                                 device=device)
+    elif hasattr(broadcasts, "detach"):
+        broadcasts = broadcasts.detach().to(agents[0].resources.device)
+    else:
+        broadcasts = torch.tensor(broadcasts, dtype=agents[0].resources.dtype,
+                                 device=agents[0].resources.device)
 
     weights = torch.zeros(num_agents, num_agents, device=broadcasts.device)
 
@@ -591,8 +599,15 @@ def compute_favorite_agent_graph(agents, broadcasts):
     """Return a directed graph where each agent points to its most attended peer."""
     num_agents = len(agents)
 
-    if hasattr(broadcasts, "detach"):
-        broadcasts = broadcasts.detach()
+    if isinstance(broadcasts, np.ndarray):
+        device = agents[0].resources.device
+        broadcasts = torch.tensor(broadcasts, dtype=agents[0].resources.dtype,
+                                 device=device)
+    elif hasattr(broadcasts, "detach"):
+        broadcasts = broadcasts.detach().to(agents[0].resources.device)
+    else:
+        broadcasts = torch.tensor(broadcasts, dtype=agents[0].resources.dtype,
+                                 device=agents[0].resources.device)
 
     favorites = []
     with torch.no_grad():
